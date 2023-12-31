@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"crypto/hmac"
 	"crypto/sha1"
-	"strconv"
 	"encoding/binary"
 )
 
@@ -21,16 +20,11 @@ func Hotp(key []byte, counter uint64, digits int) int {
 }
 
 func HotpStr(key string, counter int, digits int) (string, error) {
-	n, err := strconv.ParseUint(string([]byte(key)[counter: counter + 20]), 10, 64)
-	if err != nil {
-		return "", err
-	}
-	n++
 	raw, err := DecodeKey(key)
 	if err != nil {
 		return "", err
 	}
-	code := Hotp(raw, n, digits)
+	code := Hotp(raw, uint64(counter), digits)
 	codeStr := fmt.Sprintf("%0*d", digits, code)
 	return codeStr, nil
 }

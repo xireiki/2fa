@@ -1,60 +1,82 @@
 package config
 
 import (
+	"fmt"
 	"os"
-	"strconv"
-	"encoding/csv"
+	"io/ioutil"
+	"gopkg.in/yaml.v2"
 )
 
-type ConfigCSV struct {
-	Name    string
-	Issuer  string
-	Secret  string
-	Digits  int
-	Period  int
-	Counter int
-	Type    string
+type ConfigYaml struct {
+	Data   []DataOption `yaml:"data"`
 }
 
-func (c *ConfigCSV) ReadConfig(filePath string) (Config []ConfigCSV, err error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
+type _DataOption struct {
+	Name       string    `yaml:"name"`
+	Issuer     string    `yaml:"issuer,omitempty"`
+	Type       string    `yaml:"type"`
+	Secret     string    `yaml:"secret"`
+	Digits     int       `yaml:"digits,omitempty"`
+	TOTPOption TOTPOption `yaml:",inline"`
+	HOTPOption HOTPOption `yaml:",inline"`
+}
 
-	reader := csv.NewReader(file)
-	lines, err := reader.ReadAll()
+type DataOption _DataOption
+
+type TOTPOption struct {
+	Period int `yaml:"period,omitempty"`
+}
+
+type HOTPOption struct {
+	Counter int `yaml:"counter,omitempty"`
+}
+
+func (d *DataOption) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	tmp := _DataOption{}
+	err := unmarshal(&tmp)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var configOption []ConfigCSV
-	for n, line := range lines {
-		if n == 0 {
-			continue
-		}
-		digits, err := strconv.Atoi(line[3])
-		if err != nil {
-			return nil, err
-		}
-		period, err := strconv.Atoi(line[4])
-		if err != nil {
-			return nil, err
-		}
-		counter, err := strconv.Atoi(line[5])
-		if err != nil {
-			return nil, err
-		}
-		options := ConfigCSV {
-			Name:    line[0],
-			Issuer:  line[1],
-			Secret:  line[2],
-			Digits:  digits,
-			Period:  period,
-			Counter: counter,
-			Type:    line[6],
-		}
-		configOption = append(configOption, options)
+	*d = DataOption(tmp)
+	if d.Digits < 6 {
+		d.Digits = 6
+	} else if d.Digits > 8 {
+		return fmt.Errorf("Digits is an integer between 6 and 8.")
 	}
-	return configOption, nil
+	switch d.Type {
+	case "totp":
+		if d.TOTPOption.Period == 0 {
+			d.TOTPOption.Period = 30
+		}
+	case "hotp":
+	default:
+		return fmt.Errorf("Unknown type: %s", d.Type)
+	}
+	return nil
+}
+
+func (c *ConfigYaml) ReadConfig(filePath string) error {
+	file, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+
+	err = yaml.Unmarshal(file, &c)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *ConfigYaml) WriteConfig(filePath string) error {
+	content, err := yaml.Marshal(&c)
+	if err != nil {
+		return err
+	}
+	file, err := os.Stat(filePath)
+	if err != nil {
+		return err
+	}
+	ioutil.WriteFile(filePath, content, file.Mode().Perm())
+	return nil
 }

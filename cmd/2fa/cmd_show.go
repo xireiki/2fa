@@ -14,22 +14,15 @@ import (
 )
 
 var (
-	disableHotp bool
+	limitIssuer string
 )
 
-var commandShowAll = &cobra.Command {
-	Use:   "showall",
-	Short: "Print all two-step verification codes",
+var commandShow = &cobra.Command {
+	Use:   "show",
+	Short: "Print two-step verification codes",
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		config, err := cmd.Flags().GetString("config")
-		if err != nil {
-			log.Fatal(err)
-		}
-		configDirectory, err = cmd.Flags().GetString("config-directory")
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = showall(config, configDirectory)
+		err := show(cmd, args)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -37,21 +30,37 @@ var commandShowAll = &cobra.Command {
 }
 
 func init() {
-	commandShowAll.PersistentFlags().BoolVarP(&disableHotp, "disable-hotp", "d", false, "disable hotp output")
-	mainCommand.AddCommand(commandShowAll)
+	commandShow.PersistentFlags().StringVarP(&limitIssuer, "issuer", "i", "", "Your issuer name")
+	mainCommand.AddCommand(commandShow)
 }
 
-func showall(ConfigDirectory string, ConfigPath string) error {
+func show(cmd *cobra.Command, args []string) error {
 	osSignals := make(chan os.Signal, 1)
 	signal.Notify(osSignals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(osSignals)
 
-	var option config.ConfigYaml
-	err := option.ReadConfig(filepath.Join(ConfigPath, ConfigDirectory))
+	configPath, err := cmd.Flags().GetString("config")
 	if err != nil {
 		return err
 	}
+	configDirectory, err = cmd.Flags().GetString("config-directory")
+	if err != nil {
+		return err
+	}
+
+	var option config.ConfigYaml
+	err = option.ReadConfig(filepath.Join(configDirectory, configPath))
+	if err != nil {
+		return err
+	}
+
 	for i, v := range option.Data {
+		if v.Name != args[0] {
+			continue
+		}
+		if limitIssuer != "" && v.Issuer != limitIssuer {
+			continue
+		}
 		name := v.Name + "（" + v.Issuer + "）"
 		switch v.Type {
 			case "totp":
@@ -71,7 +80,7 @@ func showall(ConfigDirectory string, ConfigPath string) error {
 				}
 				fmt.Printf("%-*s\t\t====\t%s\n", v.Digits, code, name)
 				option.Data[i].HOTPOption.Counter += 1
-				err = option.WriteConfig(filepath.Join(ConfigPath, ConfigDirectory))
+				err = option.WriteConfig(filepath.Join(configDirectory, configPath))
 				if err != nil {
 					return err
 				}
